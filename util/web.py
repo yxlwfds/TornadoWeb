@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import time, uuid, config
+import time, uuid
 
 from io import BytesIO
 
@@ -18,10 +18,15 @@ from .metaclass import SubclassMetaclass
 from model.m_rbac import RbacModel
 
 
+SESSION_EXPIRE = 3600
+
+
 class RequestBaseHandler(RequestHandler):
     
     # 消息检查器列表
     _checkers = []
+    
+    safestr = staticmethod(safestr)
     
     sleep = staticmethod(sleep)
     
@@ -39,6 +44,10 @@ class RequestBaseHandler(RequestHandler):
         setattr(cls, r'_module_name', request_module)
         
         return request_module
+    
+    def initialize(self):
+        
+        self._cache = MCache()
     
     @coroutine
     def prepare(self):
@@ -99,18 +108,17 @@ class RequestBaseHandler(RequestHandler):
     
     def get_current_user(self):
         
-        session = self.get_cookie(config.Static.SessionSecret)
+        msid = self.get_cookie(r'msid')
         
-        if(not session):
-            session = self.get_arg_str(config.Static.SessionSecret)
-        
-        if(not session):
-            session = uuid.uuid1().hex
-            self.set_cookie(config.Static.SessionSecret, session)
+        if(not msid):
             
-        self.current_user = session
+            msid = uuid.uuid1().hex
+            
+            self.set_cookie(r'msid', msid)
+            
+        self.current_user = msid
         
-        return session
+        return msid
     
     def _parse_json_arguments(self):
         
@@ -118,9 +126,24 @@ class RequestBaseHandler(RequestHandler):
         
         if(content_type and content_type.find(r'application/json') >= 0):
             try:
-                self._json_data = json_decode(self.request.body)
+                self.json_arguments = json_decode(self.request.body)
             except Exception as error:
                 app_log.warning('Invalid application/json body: %s', error)
+    
+    def _generate_captcha(self, width, height, line_num, line_width, font_color, back_color):
+        
+        code = None
+        image = None
+        
+        with BytesIO() as stream:
+            
+            image = Captcha(width, height, line_num, line_width, font_color, back_color, r'static/fonts/impact.ttf')
+            image.save(stream)
+            
+            code = image.code
+            image = stream.getvalue()
+        
+        return code, image
     
     @property
     def request_module(self):
@@ -237,8 +260,8 @@ class RequestBaseHandler(RequestHandler):
     
     def get_json_argument(self, name, default=None):
         
-        if(hasattr(self, r'_json_data')):
-            return self._json_data.get(name, default)
+        if(hasattr(self, r'json_arguments')):
+            return self.json_arguments.get(name, default)
         else:
             return default
     
@@ -268,6 +291,44 @@ class RequestBaseHandler(RequestHandler):
             self.set_status(status_code)
         
         return self.finish(json_encode(chunk))
+    
+    def write_png(self, chunk):
+        """
+        输出PNG类型
+        """
+        self.set_header(r'Cache-Control', r'no-cache')
+        self.set_header(r'Content-Type', r'image/png')
+        
+        return self.finish(chunk)
+    
+    def generate_captcha(self, width, height, line_num=10, line_width=(1,3), font_color=(0,0,0), back_color=(255,255,255)):
+        
+        code, image = self._generate_captcha(width, height, line_num, line_width, font_color, back_color)
+        
+        if(code and image):
+            
+            token = uuid.uuid1().hex
+            
+            ckey = self._cache.key(r'captcha', token)
+            
+            self._cache.set(ckey, code, SESSION_EXPIRE)
+            
+            self.set_header(r'captcha', token)
+            
+            self.write_png(image)
+    
+    def validate_captcha(self, code):
+        
+        token = self.get_header(r'captcha')
+        
+        if(not token):
+            return False
+        
+        ckey = self._cache.key(r'captcha', token)
+        
+        captcha_code = self._cache.get(ckey)
+        
+        return code == captcha_code
 
 
 class RequestSessHandler(RequestBaseHandler):
@@ -288,15 +349,13 @@ class RequestSessHandler(RequestBaseHandler):
     @coroutine
     def _build_session(self):
         
-        self._session = MCache()
-        
         self._session_data = {}
         
         self._session_flush = False
         
-        skey = self._session.key(r'session', self.current_user)
+        ckey = self._cache.key(r'session', self.current_user)
         
-        result = yield self._session.get(skey)
+        result = yield self._cache.get(ckey)
         
         if(result and isinstance(result, dict)):
             self._session_data = result
@@ -306,20 +365,18 @@ class RequestSessHandler(RequestBaseHandler):
         
         flush, self._session_flush = self._session_flush, False
         
-        skey = self._session.key(r'session', self.current_user)
+        ckey = self._cache.key(r'session', self.current_user)
         
         if(self._session_data):
             
-            expire = config.Static.SessionExpires
-            
             if(flush):
-                yield self._session.set(skey, self._session_data, expire)
+                yield self._cache.set(ckey, self._session_data, SESSION_EXPIRE)
             else:
-                yield self._session.touch(skey, expire)
+                yield self._cache.touch(ckey, SESSION_EXPIRE)
                 
         elif(flush):
             
-            yield self._session.delete(skey)
+            yield self._cache.delete(ckey)
     
     def has_session(self, key):
         
@@ -350,21 +407,19 @@ class RequestSessHandler(RequestBaseHandler):
     
     def generate_captcha(self, width, height, line_num=10, line_width=(1,3), font_color=(0,0,0), back_color=(255,255,255)):
         
-        self.set_header(r'Cache-Control', r'no-cache')
-        self.set_header(r'Content-Type', r'image/png')
+        code, image = self._generate_captcha(width, height, line_num, line_width, font_color, back_color)
         
-        with BytesIO() as stream:
+        if(code and image):
             
-            image = Captcha(width, height, line_num, line_width, font_color, back_color, r'static/fonts/impact.ttf')
-            image.save(stream)
+            self.set_session(r'captcha', code)
             
-            self.set_session(r'captcha', image.code)
-            
-            self.finish(stream.getvalue())
+            self.write_png(image)
     
     def validate_captcha(self, code):
         
-        return code == self.get_session(r'captcha')
+        captcha_code = self.get_session(r'captcha')
+        
+        return code == captcha_code
 
 
 class RequestRbacHandler(RequestSessHandler, metaclass=SubclassMetaclass):

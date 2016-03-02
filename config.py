@@ -20,12 +20,6 @@ Static.ThreadPool = 5
 Static.ThreadPoolLimit = 10
 
 ##################################################
-# 会话超时
-
-Static.SessionSecret = r'token'
-Static.SessionExpires = 3600
-
-##################################################
 # 数据库
 
 Static.MySqlMaster = (r'127.0.0.1', 3306)
