@@ -8,3 +8,4 @@ RUN dpkg-reconfigure -f noninteractive tzdata
 RUN pip install pillow
 RUN pip install cryptography
 RUN pip install python-gettext
+RUN pip install Sphinx

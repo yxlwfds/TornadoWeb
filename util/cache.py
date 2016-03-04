@@ -52,7 +52,7 @@ class MCache():
         return r'_'.join(str(key) for key in keys)
     
     @coroutine
-    def touch(self, key, expire = 0):
+    def touch(self, key, expire=0):
         
         with catch_error():
             
@@ -87,7 +87,7 @@ class MCache():
             raise Return(result)
     
     @coroutine
-    def set(self, key, val, expire = 0):
+    def set(self, key, val, expire=0):
         
         with catch_error():
             
@@ -100,7 +100,7 @@ class MCache():
             raise Return(result)
     
     @coroutine
-    def incr(self, key, amount = 1):
+    def incr(self, key, amount=1):
         
         with catch_error():
             
@@ -111,7 +111,7 @@ class MCache():
             raise Return(result)
     
     @coroutine
-    def decr(self, key, amount = 1):
+    def decr(self, key, amount=1):
         
         with catch_error():
             
@@ -122,18 +122,18 @@ class MCache():
             raise Return(result)
     
     @coroutine
-    def delete(self, key):
+    def delete(self, *keys):
         
         with catch_error():
             
             client = self._get_client()
             
-            result = yield Task(client.delete, key)
+            result = yield Task(client.delete, *keys)
             
             raise Return(result)
     
     @coroutine
-    def keys(self, pattern='*', amount = 1):
+    def keys(self, pattern=r'*'):
         
         with catch_error():
             

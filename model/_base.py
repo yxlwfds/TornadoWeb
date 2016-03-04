@@ -147,9 +147,17 @@ class BaseModel():
         self.Return(result)
     
     @coroutine
-    def del_cache(self, key):
+    def del_cache(self, pattern=r'*'):
         
-        result = yield self._mc.delete(key)
+        keys = yield self._mc.keys(pattern)
         
-        self.Return(result)
+        if(keys):
+            
+            result = yield self._mc.delete(*keys)
+            
+            self.Return(result)
+        
+        else:
+            
+            self.Return(True)
 

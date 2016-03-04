@@ -108,17 +108,17 @@ class RequestBaseHandler(RequestHandler):
     
     def get_current_user(self):
         
-        msid = self.get_cookie(r'msid')
+        session = self.get_cookie(r'session')
         
-        if(not msid):
+        if(not session):
             
-            msid = uuid.uuid1().hex
+            session = uuid.uuid1().hex
             
-            self.set_cookie(r'msid', msid)
+            self.set_cookie(r'session', session)
             
-        self.current_user = msid
+        self.current_user = session
         
-        return msid
+        return session
     
     def _parse_json_arguments(self):
         
@@ -208,7 +208,12 @@ class RequestBaseHandler(RequestHandler):
         """
         获取str型输入
         """
-        return safestr(self.get_argument(name, default, True))
+        result = self.get_argument(name, None, True)
+        
+        if(result is None):
+            return default
+        else:
+            return safestr(result)
     
     def get_arg_int(self, name, default=0):
         """
@@ -307,26 +312,17 @@ class RequestBaseHandler(RequestHandler):
         
         if(code and image):
             
-            token = uuid.uuid1().hex
+            ckey = self._cache.key(r'captcha', self.current_user)
             
-            ckey = self._cache.key(r'captcha', token)
-            
-            self._cache.set(ckey, code, SESSION_EXPIRE)
-            
-            self.set_header(r'captcha', token)
+            yield self._cache.set(ckey, code, SESSION_EXPIRE)
             
             self.write_png(image)
     
     def validate_captcha(self, code):
         
-        token = self.get_header(r'captcha')
+        ckey = self._cache.key(r'captcha', self.current_user)
         
-        if(not token):
-            return False
-        
-        ckey = self._cache.key(r'captcha', token)
-        
-        captcha_code = self._cache.get(ckey)
+        captcha_code = yield self._cache.get(ckey)
         
         return code == captcha_code
 
