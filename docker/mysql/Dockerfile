@@ -1,4 +1,4 @@
-FROM mysql:5.7
+FROM daocloud.io/mysql:latest
 
 MAINTAINER wsb <wsb310@gmail.com>
 
