@@ -1,4 +1,4 @@
-FROM nginx:1.9
+FROM daocloud.io/library/nginx
 
 MAINTAINER wsb <wsb310@gmail.com>
 
